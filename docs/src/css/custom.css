@@ -1,0 +1,51 @@
+/**
+ * Kryptos Finance docs theme — matches the app's navy/gold palette
+ * (kryptos-frontend/src/index.css) rather than Docusaurus defaults.
+ */
+
+:root {
+  --ifm-color-primary: #8a5f0c;
+  --ifm-color-primary-dark: #7c5511;
+  --ifm-color-primary-darker: #74500f;
+  --ifm-color-primary-darkest: #60420d;
+  --ifm-color-primary-light: #a2760f;
+  --ifm-color-primary-lighter: #ac7f13;
+  --ifm-color-primary-lightest: #c39424;
+  --ifm-code-font-size: 92%;
+  --ifm-font-family-base: 'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --ifm-heading-font-weight: 600;
+  --docusaurus-highlighted-code-line-bg: rgba(169, 118, 21, 0.1);
+
+  --ifm-background-color: #f5f6fa;
+  --ifm-background-surface-color: #ffffff;
+  --ifm-navbar-background-color: #ffffff;
+  --ifm-footer-background-color: #0d1524;
+  --ifm-toc-border-color: #e2e6ef;
+  --ifm-table-border-color: #e2e6ef;
+  --ifm-table-stripe-background: #f3f5f9;
+}
+
+[data-theme='dark'] {
+  --ifm-color-primary: #e3b04b;
+  --ifm-color-primary-dark: #dea437;
+  --ifm-color-primary-darker: #dc9c2a;
+  --ifm-color-primary-darkest: #b6810f;
+  --ifm-color-primary-light: #e8bc5f;
+  --ifm-color-primary-lighter: #eac26c;
+  --ifm-color-primary-lightest: #f0d391;
+  --docusaurus-highlighted-code-line-bg: rgba(227, 176, 75, 0.13);
+
+  --ifm-background-color: #080d18;
+  --ifm-background-surface-color: #0f1626;
+  --ifm-navbar-background-color: #0f1626;
+  --ifm-footer-background-color: #080d18;
+  --ifm-toc-border-color: #212d45;
+  --ifm-table-border-color: #212d45;
+  --ifm-table-stripe-background: #101a2e;
+}
+
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap');
+
+code, kbd, pre {
+  font-family: 'Geist Mono', 'SF Mono', monospace;
+}
