@@ -1,0 +1,41 @@
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap');
+
+:root{
+  --bg:#080D18; --surface:#0F1626; --surface2:#151E31; --raise:#1B2537;
+  --border:#212D45; --border2:#2C3A56;
+  --text:#EAEEF7; --dim:#8D9AB4; --faint:#5C6880;
+  --gold:#E3B04B; --goldsoft:rgba(227,176,75,0.13); --goldtext:#F0C878;
+  --green:#3DC98D; --greensoft:rgba(61,201,141,0.13);
+  --amber:#F2A33C; --ambersoft:rgba(242,163,60,0.13);
+  --red:#E5565B; --redsoft:rgba(229,86,91,0.13);
+}
+:root[data-theme="light"]{
+  --bg:#F5F6FA; --surface:#FFFFFF; --surface2:#F3F5F9; --raise:#EBEEF5;
+  --border:#E2E6EF; --border2:#D2D8E5;
+  --text:#0D1524; --dim:#5A6480; --faint:#8A93A8;
+  --gold:#A97615; --goldsoft:rgba(169,118,21,0.10); --goldtext:#8A5F0C;
+  --green:#0E7A54; --greensoft:rgba(14,122,84,0.10);
+  --amber:#A2660F; --ambersoft:rgba(162,102,15,0.10);
+  --red:#C1373C; --redsoft:rgba(193,55,60,0.10);
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0;background:var(--bg)}
+body{-webkit-font-smoothing:antialiased;color:var(--text);font-family:Geist,Helvetica,'Helvetica Neue',sans-serif;font-size:14px;line-height:1.45}
+a{color:var(--goldtext);text-decoration:none}
+a:hover{color:var(--gold)}
+input{font-family:inherit}
+button{font-family:inherit;cursor:pointer}
+#root{min-height:100vh}
+@keyframes kfIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@keyframes kfToast{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes kfPulse{0%,100%{opacity:1}50%{opacity:.35}}
+@keyframes kfSlowSpin{from{transform:translate(-50%,-50%) rotate(0deg)}to{transform:translate(-50%,-50%) rotate(360deg)}}
+/* Decorative only (aria-hidden, pointer-events:none) — never carries content a
+   screen reader or keyboard user needs. Uses a real transparent PNG
+   (rotate-transparent.png, background removed from the uploaded source), so
+   it reads correctly on both light and dark theme without any blend-mode
+   trick — no baked-in background color to fight with the page behind it. */
+.landing-bg-mark{animation:kfSlowSpin 90s linear infinite}
+@media (prefers-reduced-motion: reduce){
+  .landing-bg-mark{animation:none;transform:translate(-50%,-50%)}
+}

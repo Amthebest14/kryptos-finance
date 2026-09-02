@@ -1,0 +1,16 @@
+[profile.default]
+src = "src"
+out = "out"
+libs = ["lib"]
+fs_permissions = [{ access = "read", path = "script/artifacts" }]
+# Needed once transition.circom grew to 10 public inputs (gap #3): the
+# snarkjs-generated verifier's raw-assembly checkPairing function hits a real
+# EVM stack-depth limit at that width, independent of any hand-written
+# contract's own logic. via_ir is solc's own suggested fix for exactly this.
+via_ir = true
+
+[rpc_endpoints]
+anvil_local = "http://127.0.0.1:8545"
+horizen_testnet = "https://horizen-testnet.rpc.caldera.xyz/http"
+
+# See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

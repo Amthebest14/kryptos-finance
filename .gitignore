@@ -1,0 +1,42 @@
+# --- secrets ---
+.env
+*.env
+!*.env.example
+
+# --- editor / OS ---
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+.idea
+
+# --- node ---
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --- foundry (contracts/) ---
+contracts/cache/
+contracts/out/
+
+# --- frontend build output ---
+kryptos-frontend/dist/
+kryptos-frontend/dist-ssr/
+*.local
+
+# --- docs (docusaurus, once scaffolded) ---
+docs/build/
+docs/.docusaurus/
+
+# --- circuits: obsolete single-party trusted-setup files ---
+# pot12/pot14 were this project's own self-generated Powers of Tau phase-1
+# ceremony, superseded by gap #4's fix: every circuit's phase-2 setup is now
+# anchored to the real, public, multi-party Hermez Perpetual Powers of Tau
+# ceremony (powersOfTau28_hez_final_14.ptau) instead. That real ceremony
+# file IS committed (see circuits/build/README.md) since both its official
+# public mirrors currently 404/403 — losing this copy would make the setup
+# unreproducible. These pot12/pot14 files are dead weight only.
+circuits/build/pot12_*.ptau
+circuits/build/pot14_*.ptau

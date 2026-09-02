@@ -1,0 +1,7 @@
+health_factor done. commitment: 3897380457012946661588706298891070113539283798511502099189739910203302780494
+transition (deposit) done.
+transition (repay+interest) done.
+reveal done.
+shielded_spend done.
+
+Wrote all_fixtures.json
