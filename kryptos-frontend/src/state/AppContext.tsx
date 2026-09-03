@@ -227,7 +227,11 @@ const AppContext = createContext<AppContextValue | null>(null);
 // instance). The background refresh functions can shrug this off and wait
 // for their next interval; a read in the middle of a user-initiated
 // transaction can't, so it gets a few retries before actually failing.
-async function withRetry<T>(fn: () => Promise<T>, attempts = 3, delayMs = 400): Promise<T> {
+// Cloudflare's own "bandwidth limit exceeded" 429s (confirmed live, hit the
+// same one directly replaying a failed call) don't reliably clear in under
+// a second, so the backoff here is seconds-scale, not the usual sub-second
+// jitter — a slower retry that actually succeeds beats a fast one that doesn't.
+async function withRetry<T>(fn: () => Promise<T>, attempts = 4, delayMs = 1200): Promise<T> {
   let lastErr: unknown;
   for (let i = 0; i < attempts; i++) {
     try {
@@ -1029,6 +1033,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setTxPending(true);
     try {
       const vault = new Contract(ADDRESSES.vault, VAULT_ABI, signer);
+      // Plain reads (positionBorrowIndexSnapshot, currentBorrowIndex,
+      // allowance below) go through the app's own dedicated RPC connection,
+      // not the signer's — a signer backed by MetaMask routes every call,
+      // reads included, through MetaMask's own injected provider, which
+      // rate-limits independently of (and more aggressively than) Horizen's
+      // RPC itself. Hit live as a MetaMask "-32005 Request is being rate
+      // limited" error that a same-provider retry couldn't out-wait. Only
+      // the actual state-changing calls below still need the signer.
+      const vaultRead = new Contract(ADDRESSES.vault, VAULT_ABI, readProvider);
 
       // Single source of truth for this call's amount, at the transition
       // circuit's own "token units * 1e6" fixed-point scale. The actual
@@ -1062,8 +1075,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       let currentIndex = 0n;
       if (kind === "borrow" || kind === "repay") {
         const existingDebtScaled = scaleAmount(localPosition.borrowed[a] || 0);
-        const snapshot: bigint = await withRetry(() => vault.positionBorrowIndexSnapshot(accountData.positionId, assetAddr));
-        currentIndex = await withRetry(() => vault.currentBorrowIndex(assetAddr));
+        const snapshot: bigint = await withRetry(() => vaultRead.positionBorrowIndexSnapshot(accountData.positionId, assetAddr));
+        currentIndex = await withRetry(() => vaultRead.currentBorrowIndex(assetAddr));
         checkpointIndex = snapshot === 0n ? currentIndex : snapshot;
         if (existingDebtScaled > 0n) {
           accruedInterestScaled = (existingDebtScaled * (currentIndex - checkpointIndex)) / checkpointIndex;
@@ -1072,7 +1085,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         // deposit/withdraw never claim interest — any equal pair collapses
         // transition.circom's interest constraint to "0 accrued," matching
         // VaultManager._submitCollateralTransition exactly.
-        checkpointIndex = await withRetry(() => vault.positionBorrowIndexSnapshot(accountData.positionId, assetAddr));
+        checkpointIndex = await withRetry(() => vaultRead.positionBorrowIndexSnapshot(accountData.positionId, assetAddr));
         currentIndex = checkpointIndex;
       }
       const accruedInterestWei = accruedInterestScaled * 10n ** 12n;
@@ -1126,7 +1139,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       if (kind === "deposit" || kind === "repay") {
         const token = new Contract(assetAddr, ERC20_ABI, signer);
-        const allowance = await withRetry(() => token.allowance(account, ADDRESSES.vault));
+        const tokenRead = new Contract(assetAddr, ERC20_ABI, readProvider);
+        const allowance = await withRetry(() => tokenRead.allowance(account, ADDRESSES.vault));
         if (allowance < amountWei) {
           const approveTx = await token.approve(ADDRESSES.vault, amountWei);
           await approveTx.wait();
@@ -1189,7 +1203,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } finally {
       setTxPending(false);
     }
-  }, [account, signer, ui.modal, ui.asset, ui.amount, localPosition, accountData.walletBalances, accountData.positionActive, refreshAccountData, refreshChainData, showToast]);
+  }, [account, signer, readProvider, ui.modal, ui.asset, ui.amount, localPosition, accountData.walletBalances, accountData.positionActive, refreshAccountData, refreshChainData, showToast]);
 
   const hfValue = hf(localPosition.supplied, localPosition.borrowed);
   const collateral = val(localPosition.supplied);
