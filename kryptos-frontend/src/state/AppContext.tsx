@@ -220,6 +220,26 @@ interface AppContextValue {
 
 const AppContext = createContext<AppContextValue | null>(null);
 
+// Horizen Testnet's RPC (Cloudflare-fronted) intermittently rate-limits or
+// otherwise drops a single eth_call with no real revert reason attached —
+// ethers surfaces this as "missing revert data" even for a plain view read
+// that's structurally incapable of reverting (a public mapping getter, for
+// instance). The background refresh functions can shrug this off and wait
+// for their next interval; a read in the middle of a user-initiated
+// transaction can't, so it gets a few retries before actually failing.
+async function withRetry<T>(fn: () => Promise<T>, attempts = 3, delayMs = 400): Promise<T> {
+  let lastErr: unknown;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (i < attempts - 1) await new Promise((r) => setTimeout(r, delayMs * (i + 1)));
+    }
+  }
+  throw lastErr;
+}
+
 function proofStatusFor(lastProofTimestamp: number, isStale: boolean, isInGracePeriod: boolean, graceRemainingSec: number, hasPosition: boolean): ProofStatus {
   if (!hasPosition) {
     return { label: "No position", color: "var(--dim)", soft: "var(--surface2)", line: "Open a position to start submitting health proofs.", help: "" };
@@ -1042,8 +1062,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       let currentIndex = 0n;
       if (kind === "borrow" || kind === "repay") {
         const existingDebtScaled = scaleAmount(localPosition.borrowed[a] || 0);
-        const snapshot: bigint = await vault.positionBorrowIndexSnapshot(accountData.positionId, assetAddr);
-        currentIndex = await vault.currentBorrowIndex(assetAddr);
+        const snapshot: bigint = await withRetry(() => vault.positionBorrowIndexSnapshot(accountData.positionId, assetAddr));
+        currentIndex = await withRetry(() => vault.currentBorrowIndex(assetAddr));
         checkpointIndex = snapshot === 0n ? currentIndex : snapshot;
         if (existingDebtScaled > 0n) {
           accruedInterestScaled = (existingDebtScaled * (currentIndex - checkpointIndex)) / checkpointIndex;
@@ -1052,7 +1072,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         // deposit/withdraw never claim interest — any equal pair collapses
         // transition.circom's interest constraint to "0 accrued," matching
         // VaultManager._submitCollateralTransition exactly.
-        checkpointIndex = await vault.positionBorrowIndexSnapshot(accountData.positionId, assetAddr);
+        checkpointIndex = await withRetry(() => vault.positionBorrowIndexSnapshot(accountData.positionId, assetAddr));
         currentIndex = checkpointIndex;
       }
       const accruedInterestWei = accruedInterestScaled * 10n ** 12n;
@@ -1106,7 +1126,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       if (kind === "deposit" || kind === "repay") {
         const token = new Contract(assetAddr, ERC20_ABI, signer);
-        const allowance = await token.allowance(account, ADDRESSES.vault);
+        const allowance = await withRetry(() => token.allowance(account, ADDRESSES.vault));
         if (allowance < amountWei) {
           const approveTx = await token.approve(ADDRESSES.vault, amountWei);
           await approveTx.wait();
