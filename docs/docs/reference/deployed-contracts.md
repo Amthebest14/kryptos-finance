@@ -11,10 +11,10 @@ All contracts below are live on **Horizen Testnet** (chain id `2651420`), deploy
 
 | Contract | Address |
 |---|---|
-| `VaultManager` | `0x197c114E68B3Ba0852D49a781c1B077Ec10f461f` |
-| `PositionRegistry` | `0x25ED11B0cf27Abeb790B9bb1D11f49354Aa4DB88` |
-| `LiquidationHandler` | `0x4b842DbE65bbd79BcA839c4e4F16AA388E934A34` |
-| `ProofVerifierAdapter` | `0x7511A6e12f9C66a6c62d31fEdB98E41478339B3b` |
+| `VaultManager` | `0x9F009aa7080605C7685a6283a2068735FD0EC8A5` |
+| `PositionRegistry` | `0x9b9Aaa9D52f3C4d386fEA2FFBa659251f734badf` |
+| `LiquidationHandler` | `0xf17FB2cD76B320d2a08DaD842b8B2c840689e384` |
+| `ProofVerifierAdapter` | `0x8c1441f3A63dc03375AfeDd6DBeAEbc0a40c57f8` |
 | `TransitionRevealAdapter` | `0x7E9cA610f84A2971E0D0576d7018196726fC3612` |
 | `PriceOracle` | `0xD746bD3B09ce0D4Ba708BA85479471A93792b1E5` |
 | `InterestRateModel` | `0x4049f156BCF0FD86eC93A7100c9006E3e49B2d63` |
