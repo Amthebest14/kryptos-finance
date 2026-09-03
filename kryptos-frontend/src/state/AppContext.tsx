@@ -1043,6 +1043,18 @@ export function AppProvider({ children }: { children: ReactNode }) {
       // the actual state-changing calls below still need the signer.
       const vaultRead = new Contract(ADDRESSES.vault, VAULT_ABI, readProvider);
 
+      // Fresh, not cached: accountData.positionActive is populated by a
+      // separate background refresh (refreshAccountData) that can still be
+      // in flight right when this fires. Trusting it caused a real bug —
+      // hit live, on a second deposit submitted right after the first: the
+      // background refresh hadn't caught up yet, so the app still thought
+      // no position existed and sent an empty "0x" proof, even though the
+      // position was already active on-chain from the first deposit's own
+      // transaction. This read is the one thing that actually has to be
+      // correct at the exact moment of submission, not whenever the last
+      // poll happened to land.
+      const [, positionActiveNow] = await withRetry(() => vaultRead.positionOf(account));
+
       // Single source of truth for this call's amount, at the transition
       // circuit's own "token units * 1e6" fixed-point scale. The actual
       // on-chain ERC20 transfer size (18 decimals) and the local position's
@@ -1152,7 +1164,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       // its `!up.active` branch), since there's no prior commitment yet to be
       // consistent with. Every other case now requires this real Circuit T
       // proof: TransitionRevealAdapter (real, deployed) rejects "0x".
-      const transitionProof = accountData.positionActive
+      const transitionProof = positionActiveNow
         ? await generateTransitionProof(
             localPosition,
             nextPosition,
@@ -1203,7 +1215,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } finally {
       setTxPending(false);
     }
-  }, [account, signer, readProvider, ui.modal, ui.asset, ui.amount, localPosition, accountData.walletBalances, accountData.positionActive, refreshAccountData, refreshChainData, showToast]);
+  }, [account, signer, readProvider, ui.modal, ui.asset, ui.amount, localPosition, accountData.walletBalances, refreshAccountData, refreshChainData, showToast]);
 
   const hfValue = hf(localPosition.supplied, localPosition.borrowed);
   const collateral = val(localPosition.supplied);
