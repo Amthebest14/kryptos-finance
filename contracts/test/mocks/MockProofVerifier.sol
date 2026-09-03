@@ -10,6 +10,17 @@ import {PositionRegistry} from "../../src/PositionRegistry.sol";
 contract MockProofVerifier is IProofVerifier {
     bool public shouldVerify = true;
 
+    // Records the checkpointIndex/currentIndex of the most recent
+    // verifyTransition call — lets a test assert on what VaultManager
+    // actually passed through without needing a real circuit. A real
+    // Groth16 verifier can't be spied on like this; a mock that only
+    // returns true/false can't have caught the real bug this exists to
+    // regression-test (VaultManager passing a genuine 0 for a
+    // never-borrowed asset, which the real circuit's floor-division check
+    // rejects but this mock would have happily accepted either way).
+    uint256 public lastCheckpointIndex;
+    uint256 public lastCurrentIndex;
+
     function setShouldVerify(bool value) external {
         shouldVerify = value;
     }
@@ -32,10 +43,12 @@ contract MockProofVerifier is IProofVerifier {
         uint256,
         uint256,
         uint256,
-        uint256,
-        uint256,
+        uint256 checkpointIndex,
+        uint256 currentIndex,
         bytes calldata
-    ) external view override returns (bool) {
+    ) external override returns (bool) {
+        lastCheckpointIndex = checkpointIndex;
+        lastCurrentIndex = currentIndex;
         return shouldVerify;
     }
 

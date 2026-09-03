@@ -83,6 +83,26 @@ contract VaultManagerTest is Test {
         vm.stopPrank();
     }
 
+    // Real bug, found live: depositing a second, DIFFERENT asset (one this
+    // position had never borrowed/repaid) passed positionBorrowIndexSnapshot's
+    // raw default of 0 as both checkpointIndex and currentIndex. VaultManager
+    // itself doesn't care what these equal — MockProofVerifier accepts
+    // anything — but the real circuit's floor-division interest check needs
+    // checkpointIndex > 0 to be satisfiable at all, so every such deposit
+    // failed to prove against the real deployed verifier. This wouldn't have
+    // caught that with the mock alone (it just returns true/false, blind to
+    // the actual values) — MockProofVerifier now records what it was called
+    // with specifically so this can assert on it.
+    function test_deposit_secondAsset_usesNonZeroCheckpointIndex() public {
+        vm.startPrank(alice);
+        vault.deposit(address(weth), 10 ether, keccak256("seal-1"), "");
+        vault.deposit(address(usdc), 100e18, keccak256("seal-2"), "proof");
+        vm.stopPrank();
+
+        assertEq(verifier.lastCheckpointIndex(), 1e18, "must substitute borrowIndex[asset], not pass a raw 0");
+        assertEq(verifier.lastCurrentIndex(), 1e18);
+    }
+
     function test_deposit_revertsOnUnsupportedAsset() public {
         MockERC20 rando = new MockERC20("Rando", "RND", 1 ether);
         vm.prank(alice);
