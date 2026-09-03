@@ -1037,6 +1037,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const n = num(ui.amount);
     const assetAddr = ASSET_ADDRESS[a];
 
+    // Shared success tail for every action kind (deposit/withdraw's single
+    // attempt, and borrow/repay's possibly-retried one) — same UI update,
+    // toast, and refresh regardless of which path got there.
+    const finishConfirm = async (nextPosition: LocalPosition, receipt: { hash: string }) => {
+      const hf1 = hf(nextPosition.supplied, nextPosition.borrowed);
+      const applied = [
+        { label: ({ deposit: "Deposited", borrow: "Borrowed", repay: "Repaid", withdraw: "Withdrawn" } as Record<string, string>)[kind] || "Confirmed", value: amt(n, a) },
+        { label: "Collateral", value: usd(val(nextPosition.supplied)) },
+        { label: "Debt", value: usd(val(nextPosition.borrowed)) },
+        { label: "Health factor", value: hfStr(hf1), color: zone(hf1).color },
+        { label: "Transaction", value: `${receipt.hash.slice(0, 8)}…${receipt.hash.slice(-6)}`, color: "var(--dim)" },
+      ];
+      setUi((s) => ({ ...s, stage: "success", applied }));
+      showToast({ title: spec.successTitle || "Confirmed", body: "Health factor now " + hfStr(hf1) + " · sent onchain", color: "var(--green)", glyph: "✓" });
+      await Promise.all([refreshAccountData(account), refreshChainData()]);
+    };
+
     setTxPending(true);
     try {
       const vault = new Contract(ADDRESSES.vault, VAULT_ABI, signer);
@@ -1073,156 +1090,144 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const deltaScaled = scaleAmount(n);
       const amountWei = deltaScaled * 10n ** 12n;
 
-      // Accrued interest: read the shared public index this position last
-      // checkpointed against, and this device's own knowledge of its current
-      // debt, to compute exactly how much interest is owed on `a` since then.
-      // As of gap #3's fix, this is no longer just a local computation the
-      // contract trusts — checkpointIndex/currentIndex get fed into the
-      // transition proof below too, and transition.circom independently
-      // re-derives the same interest amount from the position's own (private)
-      // old debt, rejecting the proof if it doesn't match. Getting this wrong
-      // doesn't produce a silently-incorrect transaction; it produces a proof
-      // that fails to verify.
-      //
-      // checkpointIndex/currentIndex must exactly match what VaultManager
-      // will independently pass to the adapter, including its own
-      // "snapshot 0 (never borrowed this asset) treated as == currentIndex"
-      // substitution (see VaultManager._borrowIndexCheckpoint) — replicated
-      // here rather than approximated, since any mismatch fails the proof.
-      let accruedInterestScaled = 0n;
-      let checkpointIndex = 0n;
-      let currentIndex = 0n;
-      if (kind === "borrow" || kind === "repay") {
-        const existingDebtScaled = scaleAmount(localPosition.borrowed[a] || 0);
-        const snapshot: bigint = await withRetry(() => vaultRead.positionBorrowIndexSnapshot(accountData.positionId, assetAddr));
-        currentIndex = await withRetry(() => vaultRead.currentBorrowIndex(assetAddr));
-        checkpointIndex = snapshot === 0n ? currentIndex : snapshot;
-        if (existingDebtScaled > 0n) {
-          accruedInterestScaled = (existingDebtScaled * (currentIndex - checkpointIndex)) / checkpointIndex;
-        }
-      } else {
-        // deposit/withdraw never claim interest — any equal pair collapses
-        // transition.circom's interest constraint to "0 accrued," matching
-        // VaultManager._submitCollateralTransition exactly, INCLUDING its
-        // zero-snapshot substitution: a never-borrowed asset's snapshot is
-        // really 0, but the circuit's floor-division remainder check needs
-        // checkpointIndex > 0 to be satisfiable at all (0 < 0 is never
-        // true) — VaultManager substitutes borrowIndex[asset] (never 0
-        // once an asset is listed) in that case, so this has to too, or
-        // the proof it builds won't match what the contract verifies.
-        const snapshot: bigint = await withRetry(() => vaultRead.positionBorrowIndexSnapshot(accountData.positionId, assetAddr));
-        checkpointIndex = snapshot === 0n ? await withRetry(() => vaultRead.borrowIndex(assetAddr)) : snapshot;
-        currentIndex = checkpointIndex;
-      }
-      const accruedInterestWei = accruedInterestScaled * 10n ** 12n;
-
-      const nextPosition: LocalPosition = {
-        supplied: { ...localPosition.supplied },
-        borrowed: { ...localPosition.borrowed },
-        salt: localPosition.salt,
-      };
-
+      // Shared collateral-only path (deposit/withdraw): checkpointIndex ==
+      // currentIndex always, collapsing the interest constraint to "0
+      // accrued" — immune to the staleness issue below, so these never need
+      // a retry loop, just VaultManager._submitCollateralTransition's own
+      // zero-snapshot substitution (a never-borrowed asset's snapshot is
+      // really 0, but the circuit's floor-division remainder check needs
+      // checkpointIndex > 0 to be satisfiable — borrowIndex[asset], never 0
+      // once an asset is listed, matches what VaultManager itself uses).
       let collateralIncrease = 0n;
       let collateralDecrease = 0n;
-      let principalIncrease = 0n;
-      let debtDecrease = 0n;
 
-      if (kind === "deposit") {
-        const oldScaled = scaleAmount(localPosition.supplied[a] || 0);
-        nextPosition.supplied[a] = Number(oldScaled + deltaScaled) / 1_000_000;
-        collateralIncrease = deltaScaled;
-      }
-      if (kind === "withdraw") {
-        const oldScaled = scaleAmount(localPosition.supplied[a] || 0);
-        const newScaled = deltaScaled > oldScaled ? 0n : oldScaled - deltaScaled;
-        nextPosition.supplied[a] = Number(newScaled) / 1_000_000;
-        if (nextPosition.supplied[a] < 1e-9) delete nextPosition.supplied[a];
-        collateralDecrease = deltaScaled;
-      }
-      if (kind === "borrow") {
-        // Interest owed since the last check-in is added on top of the new
-        // borrow — nobody receives extra tokens for it, it just makes debt
-        // grow, exactly like real accrued interest on a loan. principalIncrease
-        // (the new borrow) and interestAccrued are separate transition.circom
-        // inputs now, not combined — only interestAccrued is cryptographically
-        // checked against checkpointIndex/currentIndex.
-        const oldScaled = scaleAmount(localPosition.borrowed[a] || 0);
-        nextPosition.borrowed[a] = Number(oldScaled + deltaScaled + accruedInterestScaled) / 1_000_000;
-        principalIncrease = deltaScaled;
-      }
-      if (kind === "repay") {
-        // Interest owed accrues first, then this repayment reduces it — both
-        // in the same transition proof (see transition.circom's own support
-        // for simultaneous principal/interest/decrease, and IProofVerifier's
-        // interface change enabling it here).
-        const oldScaled = scaleAmount(localPosition.borrowed[a] || 0) + accruedInterestScaled;
-        const newScaled = deltaScaled > oldScaled ? 0n : oldScaled - deltaScaled;
-        nextPosition.borrowed[a] = Number(newScaled) / 1_000_000;
-        if (nextPosition.borrowed[a] < 1e-9) delete nextPosition.borrowed[a];
-        debtDecrease = deltaScaled;
-      }
-      const newCommitment = await computeCommitment(nextPosition);
+      if (kind === "deposit" || kind === "withdraw") {
+        const nextPosition: LocalPosition = { supplied: { ...localPosition.supplied }, borrowed: { ...localPosition.borrowed }, salt: localPosition.salt };
+        const snapshot: bigint = await withRetry(() => vaultRead.positionBorrowIndexSnapshot(accountData.positionId, assetAddr));
+        const checkpointIndex = snapshot === 0n ? await withRetry(() => vaultRead.borrowIndex(assetAddr)) : snapshot;
 
-      if (kind === "deposit" || kind === "repay") {
-        const token = new Contract(assetAddr, ERC20_ABI, signer);
-        const tokenRead = new Contract(assetAddr, ERC20_ABI, readProvider);
-        const allowance = await withRetry(() => tokenRead.allowance(account, ADDRESSES.vault));
-        if (allowance < amountWei) {
-          const approveTx = await token.approve(ADDRESSES.vault, amountWei);
-          await approveTx.wait();
+        if (kind === "deposit") {
+          const oldScaled = scaleAmount(localPosition.supplied[a] || 0);
+          nextPosition.supplied[a] = Number(oldScaled + deltaScaled) / 1_000_000;
+          collateralIncrease = deltaScaled;
+        } else {
+          const oldScaled = scaleAmount(localPosition.supplied[a] || 0);
+          const newScaled = deltaScaled > oldScaled ? 0n : oldScaled - deltaScaled;
+          nextPosition.supplied[a] = Number(newScaled) / 1_000_000;
+          if (nextPosition.supplied[a] < 1e-9) delete nextPosition.supplied[a];
+          collateralDecrease = deltaScaled;
         }
+        const newCommitment = await computeCommitment(nextPosition);
+
+        if (kind === "deposit") {
+          const token = new Contract(assetAddr, ERC20_ABI, signer);
+          const tokenRead = new Contract(assetAddr, ERC20_ABI, readProvider);
+          const allowance = await withRetry(() => tokenRead.allowance(account, ADDRESSES.vault));
+          if (allowance < amountWei) {
+            const approveTx = await token.approve(ADDRESSES.vault, amountWei);
+            await approveTx.wait();
+          }
+        }
+
+        const transitionProof = positionActiveNow
+          ? await generateTransitionProof(localPosition, nextPosition, ASSET_INDEX[a], collateralIncrease, collateralDecrease, 0n, 0n, 0n, checkpointIndex, checkpointIndex)
+          : "0x";
+
+        const tx = kind === "deposit"
+          ? await vault.deposit(assetAddr, amountWei, newCommitment, transitionProof)
+          : await vault.withdraw(assetAddr, amountWei, newCommitment, transitionProof);
+        const receipt = await tx.wait();
+
+        savePosition(account, ADDRESSES.vault, nextPosition);
+        setLocalPosition(nextPosition);
+        await finishConfirm(nextPosition, receipt);
+        return;
       }
 
-      // Every call except a brand-new position's very first deposit must
-      // prove the transition — VaultManager only skips the check there (see
-      // its `!up.active` branch), since there's no prior commitment yet to be
-      // consistent with. Every other case now requires this real Circuit T
-      // proof: TransitionRevealAdapter (real, deployed) rejects "0x".
-      const transitionProof = positionActiveNow
-        ? await generateTransitionProof(
-            localPosition,
-            nextPosition,
-            ASSET_INDEX[a],
-            collateralIncrease,
-            collateralDecrease,
-            principalIncrease,
-            debtDecrease,
-            accruedInterestScaled,
-            checkpointIndex,
-            currentIndex
-          )
-        : "0x";
-
-      let tx;
-      if (kind === "deposit") tx = await vault.deposit(assetAddr, amountWei, newCommitment, transitionProof);
-      else if (kind === "borrow") tx = await vault.borrow(assetAddr, amountWei, accruedInterestWei, newCommitment, transitionProof);
-      else if (kind === "repay") tx = await vault.repay(assetAddr, amountWei, accruedInterestWei, newCommitment, transitionProof);
-      else if (kind === "withdraw") tx = await vault.withdraw(assetAddr, amountWei, newCommitment, transitionProof);
-      else {
+      if (kind !== "borrow" && kind !== "repay") {
         // stake/unstake: no real contract yet (ZenStaking.sol not built) — should be unreachable
         // since the Staking page no longer opens this modal kind, but guard anyway.
         showToast({ title: "Not available yet", body: "ZEN staking isn't deployed on this devnet yet.", color: "var(--amber)", glyph: "!" });
         setTxPending(false);
         return;
       }
-      const receipt = await tx.wait();
 
-      savePosition(account, ADDRESSES.vault, nextPosition);
-      setLocalPosition(nextPosition);
+      // borrow/repay: checkpointIndex/currentIndex bind the proof to the
+      // asset's live, continuously-moving interest index (WAD-scaled,
+      // ticking every second an asset has any utilization) at the exact
+      // moment they're read. VaultManager re-reads that same index fresh
+      // the moment the transaction actually MINES — not when it's
+      // submitted — via _accrueInterest(). Real gap, found live: under RPC
+      // congestion, the read-proof-submit-mine round trip can take long
+      // enough for the index to move in between, making a perfectly
+      // correctly-built proof stale by the time it lands, and
+      // indistinguishable on the surface from a genuine bug ("VaultManager:
+      // invalid transition proof"). Confirmed directly: watched
+      // currentBorrowIndex(ZEN) move between two reads seconds apart on
+      // this exact position. Self-heals by retrying with a completely
+      // fresh read + proof rather than resubmitting the same stale one.
+      const MAX_INTEREST_RACE_ATTEMPTS = 3;
+      let lastErr: unknown;
+      for (let attempt = 0; attempt < MAX_INTEREST_RACE_ATTEMPTS; attempt++) {
+        try {
+          const existingDebtScaled = scaleAmount(localPosition.borrowed[a] || 0);
+          const snapshot: bigint = await withRetry(() => vaultRead.positionBorrowIndexSnapshot(accountData.positionId, assetAddr));
+          const currentIndex: bigint = await withRetry(() => vaultRead.currentBorrowIndex(assetAddr));
+          const checkpointIndex = snapshot === 0n ? currentIndex : snapshot;
+          const accruedInterestScaled = existingDebtScaled > 0n ? (existingDebtScaled * (currentIndex - checkpointIndex)) / checkpointIndex : 0n;
+          const accruedInterestWei = accruedInterestScaled * 10n ** 12n;
 
-      const hf1 = hf(nextPosition.supplied, nextPosition.borrowed);
-      const applied = [
-        { label: ({ deposit: "Deposited", borrow: "Borrowed", repay: "Repaid", withdraw: "Withdrawn" } as Record<string, string>)[kind] || "Confirmed", value: amt(n, a) },
-        { label: "Collateral", value: usd(val(nextPosition.supplied)) },
-        { label: "Debt", value: usd(val(nextPosition.borrowed)) },
-        { label: "Health factor", value: hfStr(hf1), color: zone(hf1).color },
-        { label: "Transaction", value: `${receipt.hash.slice(0, 8)}…${receipt.hash.slice(-6)}`, color: "var(--dim)" },
-      ];
+          const nextPosition: LocalPosition = { supplied: { ...localPosition.supplied }, borrowed: { ...localPosition.borrowed }, salt: localPosition.salt };
+          let principalIncrease = 0n;
+          let debtDecrease = 0n;
 
-      setUi((s) => ({ ...s, stage: "success", applied }));
-      showToast({ title: spec.successTitle || "Confirmed", body: "Health factor now " + hfStr(hf1) + " · sent onchain", color: "var(--green)", glyph: "✓" });
+          if (kind === "borrow") {
+            const oldScaled = scaleAmount(localPosition.borrowed[a] || 0);
+            nextPosition.borrowed[a] = Number(oldScaled + deltaScaled + accruedInterestScaled) / 1_000_000;
+            principalIncrease = deltaScaled;
+          } else {
+            const oldScaled = scaleAmount(localPosition.borrowed[a] || 0) + accruedInterestScaled;
+            const newScaled = deltaScaled > oldScaled ? 0n : oldScaled - deltaScaled;
+            nextPosition.borrowed[a] = Number(newScaled) / 1_000_000;
+            if (nextPosition.borrowed[a] < 1e-9) delete nextPosition.borrowed[a];
+            debtDecrease = deltaScaled;
+          }
+          const newCommitment = await computeCommitment(nextPosition);
 
-      await Promise.all([refreshAccountData(account), refreshChainData()]);
+          if (kind === "repay") {
+            const token = new Contract(assetAddr, ERC20_ABI, signer);
+            const tokenRead = new Contract(assetAddr, ERC20_ABI, readProvider);
+            const allowance = await withRetry(() => tokenRead.allowance(account, ADDRESSES.vault));
+            if (allowance < amountWei) {
+              const approveTx = await token.approve(ADDRESSES.vault, amountWei);
+              await approveTx.wait();
+            }
+          }
+
+          const transitionProof = positionActiveNow
+            ? await generateTransitionProof(localPosition, nextPosition, ASSET_INDEX[a], 0n, 0n, principalIncrease, debtDecrease, accruedInterestScaled, checkpointIndex, currentIndex)
+            : "0x";
+
+          const tx = kind === "borrow"
+            ? await vault.borrow(assetAddr, amountWei, accruedInterestWei, newCommitment, transitionProof)
+            : await vault.repay(assetAddr, amountWei, accruedInterestWei, newCommitment, transitionProof);
+          const receipt = await tx.wait();
+
+          savePosition(account, ADDRESSES.vault, nextPosition);
+          setLocalPosition(nextPosition);
+          await finishConfirm(nextPosition, receipt);
+          return;
+        } catch (err) {
+          lastErr = err;
+          const msg = err instanceof Error ? err.message : String(err);
+          // Only the interest-index race is worth retrying with fresh
+          // values — anything else (rejected in wallet, real revert for a
+          // different reason, insufficient balance) will just fail the
+          // same way again.
+          if (!msg.includes("invalid transition proof") || attempt === MAX_INTEREST_RACE_ATTEMPTS - 1) throw err;
+        }
+      }
+      throw lastErr;
     } catch (err) {
       console.error(err);
       showToast({ title: "Transaction failed", body: "It was rejected or reverted — nothing changed.", color: "var(--red)", glyph: "!" });
