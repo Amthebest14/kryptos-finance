@@ -219,11 +219,25 @@ contract VaultManager {
     // Shared by deposit/withdraw specifically — both touch only collateral,
     // never debt, so checkpointIndex == currentIndex always (collapsing
     // transition.circom's interest constraint to "0 accrued," see that
-    // circuit's own comment) and neither needs `_borrowIndexCheckpoint`'s
-    // zero-checkpoint handling. Factored out purely to keep deposit/withdraw
+    // circuit's own comment). Factored out purely to keep deposit/withdraw
     // themselves under solc's legacy-codegen stack-depth limit — inlining
     // this call's 12 arguments directly into either caller (on top of their
     // own locals) pushes past it ("stack too deep").
+    //
+    // Real bug, found live: positionBorrowIndexSnapshot[positionId][asset]
+    // defaults to 0 until this position's first borrow/repay of `asset`.
+    // Passing that raw 0 as both checkpointIndex and currentIndex satisfied
+    // transition.circom's original exact-equality interest check trivially
+    // (0 === 0), but not its floor-division remainder-bound rewrite, which
+    // requires `remainder < checkpointIndex` — unsatisfiable when
+    // checkpointIndex is genuinely 0, making every deposit/withdraw of an
+    // asset this position had never touched impossible to prove. Same
+    // zero-checkpoint substitution `_borrowIndexCheckpoint` already applies
+    // for borrow/repay, applied here too: borrowIndex[asset] is never 0
+    // once an asset is listed (initialized to WAD in listAsset()), so using
+    // it in place of a genuine 0 keeps checkpointIndex == currentIndex
+    // (still forcing interestAccrued to 0) while making the remainder
+    // bound satisfiable again.
     function _submitCollateralTransition(
         uint256 positionId,
         bytes32 oldCommitment,
@@ -234,6 +248,7 @@ contract VaultManager {
         bytes calldata transitionProof
     ) private {
         uint256 idxSnap = positionBorrowIndexSnapshot[positionId][asset];
+        uint256 idx = idxSnap == 0 ? borrowIndex[asset] : idxSnap;
         _submitTransition(
             positionId,
             oldCommitment,
@@ -244,8 +259,8 @@ contract VaultManager {
             0,
             0,
             0,
-            idxSnap,
-            idxSnap,
+            idx,
+            idx,
             transitionProof
         );
     }

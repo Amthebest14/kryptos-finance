@@ -14,42 +14,43 @@ export const RPC_URL = "https://horizen-testnet.rpc.caldera.xyz/http";
 // starts fresh at block 0. Adequate for now (deployment just happened), but
 // once the chain advances >100k blocks past DEPLOY_BLOCK this single-range
 // query will need to be split into 100k-block chunks — not needed yet.
-export const DEPLOY_BLOCK = 0x199708a;
+export const DEPLOY_BLOCK = 0x199c9ec;
 
-// Redeployed a ninth time (2026-09-03): fixes a real bug found live, on a
-// real repay. transition.circom's interest constraint used to demand
-// interestAccrued divide out of debt*indexDelta/checkpointIndex EXACTLY —
-// real interest essentially never does (checkpointIndex is a huge
-// WAD-scaled value with no reason to divide the product evenly), so any
-// borrow/repay with nonzero elapsed time failed outright. Every prior test
-// happened to use round numbers (or zero elapsed time) that divided evenly
-// by coincidence. Fixed in the circuit itself: interestAccrued is now
-// proven as a floor division via a bounded remainder, not exact equality —
-// see transition.circom's own comment.
+// Redeployed an eleventh time (2026-09-03): the tenth redeploy fixed a real
+// bug (checkpointIndex/currentIndex genuinely 0 for a never-borrowed asset,
+// unsatisfiable against the ninth redeploy's floor-division remainder check
+// — see VaultManager._submitCollateralTransition's own comment) but shipped
+// broken: its own deploy script reused a stale TRANSITION_REVEAL_ADAPTER
+// constant, copied from the EIGHTH redeploy (gap #9's fix) rather than the
+// ninth (the interest-proof fix) — wiring the new VaultManager to an old
+// adapter that itself still pointed at the pre-interest-fix
+// TransitionVerifier. Every transition proof this project's own current
+// circuit files generate was therefore being checked against a
+// verification key from a different, older circuit — cryptographically
+// guaranteed to fail, independent of anything about checkpointIndex.
+// Caught live via a controlled reproduction script before this ever
+// reached testnet.kryptos.finance: calling TransitionRevealAdapter's
+// verifyTransition directly returned false even though the exact same
+// proof verified true against the raw Groth16 verifier it should have
+// held — its own transitionVerifier() read back the OLD address, not
+// 0x674D241d662DD538f9Ae693463362977E6D7DC8D.
 //
-// A new circuit means a new TransitionVerifier, which TransitionRevealAdapter
-// wires to immutably, which PositionRegistry/ProofVerifierAdapter/
-// VaultManager/LiquidationHandler all reference immutably in turn — the same
-// full cascade as the eighth redeploy, plus TransitionRevealAdapter itself
-// this time (reused as-is last time, since only VaultManager's own Solidity
-// changed then, not the circuit).
-//
-// Reused as-is: HealthVerifier and RevealVerifier (neither circuit changed),
-// PriceOracle, InterestRateModel, and the WETH/USDC/ZEN mock tokens.
-// ZenStaking is reused too, repointed via its own setVault() rather than
-// redeployed — existing stakes and unclaimed rewards carry over untouched.
+// Only the wiring constant changed — same five fresh contracts as the
+// tenth redeploy, this time pointed at the correct (ninth-redeploy)
+// TransitionRevealAdapter. Everything else reused as-is; ZenStaking
+// repointed via setVault() again, not redeployed.
 export const ADDRESSES = {
-  proofVerifier: "0x7511A6e12f9C66a6c62d31fEdB98E41478339B3b", // ProofVerifierAdapter (real, Circuit A)
+  proofVerifier: "0x8c1441f3A63dc03375AfeDd6DBeAEbc0a40c57f8", // ProofVerifierAdapter (real, Circuit A)
   healthVerifier: "0x2DF316eC6fbFED3a336871d7c0b11d1B64938E34", // generated Groth16 verifier (Circuit A) — reused
-  transitionVerifier: "0x674D241d662DD538f9Ae693463362977E6D7DC8D", // generated Groth16 verifier (Circuit T) — fresh, fixes the interest bug
+  transitionVerifier: "0x674D241d662DD538f9Ae693463362977E6D7DC8D", // generated Groth16 verifier (Circuit T) — reused, circuit itself unchanged since the ninth redeploy
   revealVerifier: "0xf17904Cdbe9E60F1B210B6f4CBa22da6D0ac40cB", // generated Groth16 verifier (Circuit R) — reused
-  transitionRevealAdapter: "0x7E9cA610f84A2971E0D0576d7018196726fC3612", // fresh, gates deposit/withdraw/borrow/repay + liquidate
+  transitionRevealAdapter: "0x7E9cA610f84A2971E0D0576d7018196726fC3612", // reused — the CORRECT one, verified to point at the right TransitionVerifier
   priceOracle: "0xD746bD3B09ce0D4Ba708BA85479471A93792b1E5", // reused
   interestRateModel: "0x4049f156BCF0FD86eC93A7100c9006E3e49B2d63", // reused
   zenStaking: "0x0b56986F8Ec05ba0b6da5956269cDA0c5BB9226E", // reused, repointed via setVault()
-  registry: "0x25ED11B0cf27Abeb790B9bb1D11f49354Aa4DB88",
-  vault: "0x197c114E68B3Ba0852D49a781c1B077Ec10f461f",
-  handler: "0x4b842DbE65bbd79BcA839c4e4F16AA388E934A34",
+  registry: "0x9b9Aaa9D52f3C4d386fEA2FFBa659251f734badf",
+  vault: "0x9F009aa7080605C7685a6283a2068735FD0EC8A5",
+  handler: "0xf17FB2cD76B320d2a08DaD842b8B2c840689e384",
   weth: "0x239Ac78cAb8d5553BDC6737593824b06fd88CE47", // reused
   usdc: "0xe026E73C3aD539b6566d2A1A29A5d778e7AB7C9a", // reused
   zen: "0xe015F8ccacC72545b9CF457a610bfC75fFAB4ADd", // reused
@@ -110,6 +111,7 @@ export const VAULT_ABI = [
   // against, not any individual position's actual debt).
   "function currentBorrowIndex(address asset) view returns (uint256)",
   "function positionBorrowIndexSnapshot(uint256 positionId, address asset) view returns (uint256)",
+  "function borrowIndex(address asset) view returns (uint256)",
   "event Deposited(address indexed user, uint256 indexed positionId, address indexed asset, uint256 amount)",
   "event Withdrawn(address indexed user, uint256 indexed positionId, address indexed asset, uint256 amount)",
   "event Borrowed(address indexed user, uint256 indexed positionId, address indexed asset, uint256 amount)",

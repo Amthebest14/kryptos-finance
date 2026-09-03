@@ -229,16 +229,23 @@ const AppContext = createContext<AppContextValue | null>(null);
 // transaction can't, so it gets a few retries before actually failing.
 // Cloudflare's own "bandwidth limit exceeded" 429s (confirmed live, hit the
 // same one directly replaying a failed call) don't reliably clear in under
-// a second, so the backoff here is seconds-scale, not the usual sub-second
-// jitter — a slower retry that actually succeeds beats a fast one that doesn't.
-async function withRetry<T>(fn: () => Promise<T>, attempts = 4, delayMs = 1200): Promise<T> {
+// a second, so the first retry still waits a full second rather than firing
+// immediately. What changed after this was first written: 4 attempts at
+// 1200/2400/3600ms (up to 7.2s of pure waiting, per call, with several such
+// calls in one action) made every transient hiccup feel like a hang even
+// when the RPC wasn't genuinely rate-limited — confirmed live, this is what
+// was actually making the app feel slow, not a new bug. Cut to 3 attempts,
+// 1000/1500ms (2.5s worst case) — still gives a real 429 its first-second
+// grace period, without compounding into double-digit seconds across a
+// multi-read action.
+async function withRetry<T>(fn: () => Promise<T>, attempts = 3, delayMs = 1000): Promise<T> {
   let lastErr: unknown;
   for (let i = 0; i < attempts; i++) {
     try {
       return await fn();
     } catch (err) {
       lastErr = err;
-      if (i < attempts - 1) await new Promise((r) => setTimeout(r, delayMs * (i + 1)));
+      if (i < attempts - 1) await new Promise((r) => setTimeout(r, delayMs + i * 500));
     }
   }
   throw lastErr;
@@ -1096,8 +1103,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
       } else {
         // deposit/withdraw never claim interest — any equal pair collapses
         // transition.circom's interest constraint to "0 accrued," matching
-        // VaultManager._submitCollateralTransition exactly.
-        checkpointIndex = await withRetry(() => vaultRead.positionBorrowIndexSnapshot(accountData.positionId, assetAddr));
+        // VaultManager._submitCollateralTransition exactly, INCLUDING its
+        // zero-snapshot substitution: a never-borrowed asset's snapshot is
+        // really 0, but the circuit's floor-division remainder check needs
+        // checkpointIndex > 0 to be satisfiable at all (0 < 0 is never
+        // true) — VaultManager substitutes borrowIndex[asset] (never 0
+        // once an asset is listed) in that case, so this has to too, or
+        // the proof it builds won't match what the contract verifies.
+        const snapshot: bigint = await withRetry(() => vaultRead.positionBorrowIndexSnapshot(accountData.positionId, assetAddr));
+        checkpointIndex = snapshot === 0n ? await withRetry(() => vaultRead.borrowIndex(assetAddr)) : snapshot;
         currentIndex = checkpointIndex;
       }
       const accruedInterestWei = accruedInterestScaled * 10n ** 12n;
