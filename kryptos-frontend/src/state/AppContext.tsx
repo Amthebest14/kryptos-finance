@@ -1157,16 +1157,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
       // ticking every second an asset has any utilization) at the exact
       // moment they're read. VaultManager re-reads that same index fresh
       // the moment the transaction actually MINES — not when it's
-      // submitted — via _accrueInterest(). Real gap, found live: under RPC
-      // congestion, the read-proof-submit-mine round trip can take long
-      // enough for the index to move in between, making a perfectly
-      // correctly-built proof stale by the time it lands, and
-      // indistinguishable on the surface from a genuine bug ("VaultManager:
-      // invalid transition proof"). Confirmed directly: watched
-      // currentBorrowIndex(ZEN) move between two reads seconds apart on
-      // this exact position. Self-heals by retrying with a completely
-      // fresh read + proof rather than resubmitting the same stale one.
-      const MAX_INTEREST_RACE_ATTEMPTS = 3;
+      // submitted — via _accrueInterest(). Real gap, found live: proof
+      // generation alone takes several seconds, and under today's RPC
+      // congestion the submit-to-mine leg can take much longer than that —
+      // long enough for even a genuinely tiny, normal interest rate
+      // (confirmed: ~0.27%/year on ZEN at ~1% utilization, nothing
+      // elevated) to tick the index over in between, since the check
+      // demands an EXACT match, not a tolerance. Confirmed directly with an
+      // isolated single-shot proof: cryptographically valid on its own
+      // (raw verifier accepted the exact submitted bytes), rejected
+      // on-chain anyway because the real index had moved by the time it
+      // mined. A fixed retry count doesn't fully solve this if congestion
+      // is sustained (every attempt's own round trip is just as
+      // vulnerable), but it's a real, cheap improvement over none —
+      // self-heals via a completely fresh read + proof each attempt rather
+      // than resubmitting the same stale one.
+      const MAX_INTEREST_RACE_ATTEMPTS = 6;
       let lastErr: unknown;
       for (let attempt = 0; attempt < MAX_INTEREST_RACE_ATTEMPTS; attempt++) {
         try {
