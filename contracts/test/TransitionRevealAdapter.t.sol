@@ -32,7 +32,11 @@ import {Groth16Verifier as RevealGroth16Verifier} from "../src/RevealVerifier.so
 /// currentIndex=1.05e18 (a 5% index move — 1000 USDC * 5% = 50 USDC,
 /// exactly the interest claimed). Reveal fixture: 5 WETH collateral (index 0)
 /// / 1000 USDC debt (index 1), salt 12345 — the same position numbers
-/// Circuit A's own fixture uses.
+/// Circuit A's own fixture uses. Non-round-interest fixture: 5 WETH
+/// collateral / 900 ZEN debt (asset index 2), the exact checkpointIndex/
+/// currentIndex pair captured from a real failed repay live — see
+/// transition.circom's own comment for why the old exact-equality interest
+/// constraint rejected this and the new floor-division one accepts it.
 ///
 /// The circuits work in "token units * 1e6" (matching the Poseidon commitment
 /// scheme), but every amount value this adapter actually receives from
@@ -52,66 +56,93 @@ contract TransitionRevealAdapterTest is Test {
     bytes32 constant REPAY_OLD_COMMITMENT = 0x089dd6d3a09114927baa1ea89c313ceeb8db52d81e7e6075d0a12b8edc409e4e;
     bytes32 constant REPAY_NEW_COMMITMENT = 0x04d1cca685bd6a7509c52c3dff4b869fc20af4f4d278147d81922eb25b33e627;
     bytes32 constant REVEAL_COMMITMENT = 0x089dd6d3a09114927baa1ea89c313ceeb8db52d81e7e6075d0a12b8edc409e4e;
+    bytes32 constant NONROUND_OLD_COMMITMENT = 0x2b3ce38975a41f432093f650b6d611c09a81cde0e84b312b06a38ac77edfa610;
+    bytes32 constant NONROUND_NEW_COMMITMENT = 0x0bc7f7e7097611977dd20a9405d418f3489ab06f29cd793c4b4e5b8f582e746c;
 
     uint256 constant CHECKPOINT_INDEX = 1_000_000_000_000_000_000; // 1e18 WAD
     uint256 constant CURRENT_INDEX_NO_INTEREST = 1_000_000_000_000_000_000; // equal, no interest claimed
     uint256 constant CURRENT_INDEX_WITH_5PCT = 1_050_000_000_000_000_000; // 1.05e18
+    // The exact currentIndex captured live from a real failed repay — this is
+    // the whole point of this fixture: 900e6 * 9886986254466 / 1e18 does NOT
+    // divide evenly (floor = 8898, real nonzero remainder), unlike the clean
+    // 5% fixture above. The old exact-equality constraint rejected this;
+    // the floor-division fix accepts it.
+    uint256 constant CURRENT_INDEX_NONROUND = 1_000_009_886_986_254_466;
 
     uint256[2] transitionPA = [
-        0x2447305d42048fc949e034623ece7b3cfc63a2050ff7eefbefcdffc484aaf7e4,
-        0x0130f8768892f5c900a13f1654d4a0abbbea19ec0f96325f84310b3b8d4d32e9
+        0x17680bc551e7a3076620bf05631f9f0799279a6d5ef8fc5d47ba536553693578,
+        0x20933bbb225882afc1cefc2e4721af5b8681e12188e4a42d4883bb9fa6bf5d8c
     ];
     uint256[2][2] transitionPB = [
         [
-            0x137a394ca0f41aee93e7008f26e8ac36961471da41ffd7f45a6a05afa9f80c09,
-            0x1c9209a5e749eb69fe5d077bf41ef8bca6acad99c1f15a8a774b07aa03dca5cd
+            0x12062038f1b0ef8b1badaa0fc449e9e04f0c08b74fb156e4e3fa0b6ebf684424,
+            0x075d74ad7d685365acea30c65e2c16e4a8f5570c2cc32aabc0fa93dc0c536c62
         ],
         [
-            0x1d0c9e542a327a22934d55b625a5f4d50fa42ab0724aee4ff45afaecf51aac55,
-            0x02403d34d282d1681808266ee1ee5724315c8e9e53e58f66f3477b1484823e5b
+            0x25f56e22037b3c43b1423d7098bc31188af42e78565a85e27420abf4acff7d85,
+            0x24969fa35a1c1181e40fb3525daedbb98824ef4dff0ffe0bb39b54de9ebc4f17
         ]
     ];
     uint256[2] transitionPC = [
-        0x0af029c56e043b5dcdf60a53561202b6313175de259c4e35104b44b3d494117b,
-        0x0036604ef7fb19ff9c85611ceff9d02748b7d8f4912eeb193f3a915f904cc911
+        0x18379869de581178093c7f42d8c6b5af2cbc7029206aa73874e7a889af64b86d,
+        0x2aef50809f63a5870cf74c63a652e9de41bfcbf5be66b57428bb21112a8d7716
     ];
 
     uint256[2] repayPA = [
-        0x15740687bc778f6d778ac13c5ff1446d95d42803ec480c1c86604177f2f919f6,
-        0x041dcd67b2ae5b69439e57d78dae590e32c5a3fd9e79633df7bf726ade44f9d9
+        0x21d6f1da55d9b5a3b1d80cf3b7a8a478d3a07a7856b7915de8b9ceaf38583f78,
+        0x0febec71d7fdd53a95005f6497f878481431c1ab6d4958029c8dabdc76fbf06f
     ];
     uint256[2][2] repayPB = [
         [
-            0x052073e30b36c206a9248513c9d81e1593a5cf0c71bbb8a4f33a01e2a34af4e1,
-            0x183188b05d844b8a57a4c4c53acf7425bc083d7383c7d8479cf7b50d52619f46
+            0x197517e563eb15ccc2e4c629ba77ce0d65004fe7edc072f64888b02ddf9eb50c,
+            0x1d23fb04030604f53ecbf4452a272ae15d36e122ca803c400954491bd388608e
         ],
         [
-            0x0985277b5fc9ab99db21018cba477ebe1dfbb9b42edab45ea22d95e2e209a1ba,
-            0x2dec1e17cbd89f6f2119c6a688fe286289e2ffd017fe29b68b9fa7690475e974
+            0x26573ee9a4d3bbebb4bfceaa37735e4bbd9d7ec70288cba6a78e7a6c0df1d765,
+            0x191b63264479b372d258329122ef26a14690f597e8cda809bcc7cf0fc51a284d
         ]
     ];
     uint256[2] repayPC = [
-        0x1189fae6db91cf9f561b2ab0857de2164ed4205534d436a3cc5b43671cebaaff,
-        0x12b3bce465e6bbee5325e6da67fe401b0ca41e8338c650e91193cbf520995450
+        0x0284c280fceca68de371ad4c07aa37ef7724cd2ae7b18dfbdc0086bcdc488d48,
+        0x0b34f404b1ab535e20d839ee1a06db9271f4e7ec91edd93e9a2923d80d2292f2
     ];
 
     uint256[2] revealPA = [
-        0x2cedd8f275fc0742f45ae38fb3aed2802d6cfcd800a64fd1d7e41d1b8fa47d18,
-        0x0fbf748974ac18b06aae3508daf33234bc9e61b1feb7f4ccec2aa914809ac0e0
+        0x114fa2b2d5686e18fe424c0af406aeaa62222f3cc4020c04cc49a1d7aed6bad6,
+        0x1ce3c3b3a7db24d594e433412db1312ffe5e40ad7d9b1b059d7cecde04266323
     ];
     uint256[2][2] revealPB = [
         [
-            0x05453f8c5659ad7a21268fb86e333964abed5ba79ea9c0cf597726b4e4e4f5ad,
-            0x290e7430cf555f92b917bcbc67c2109f78c29180e51dffe73cd26fa3d9c8ce07
+            0x276949ee3cf6d0a12a7232b319c07f49a528a70dd34f311f25934a529fdb689f,
+            0x2467f0f32bed23b92a78daa7cacda894bf21c96955a20d0a3966c83bd0be0825
         ],
         [
-            0x1bf7d3d0b34dc5aa29146194acaee51909a52ccb677032c95a663dd129868e9e,
-            0x094585b49fc77e9cda6a1ccfb4620ba6a1835fbb380e3eb332c6804bc32ad1a1
+            0x0c2c54a3f315e94a17e94f0329d6e9d2d6b7e6275cfee2694f61c784636f9e13,
+            0x0fd73c63e0f36788d22cb1127ade1a24f07f7b74054cc08998c50fc311fecce5
         ]
     ];
     uint256[2] revealPC = [
-        0x213007dca3dd2274ea00d93ea1035d65e22c5448120c3f75cc93a2a97938b32b,
-        0x1a8f21b82b747b316b11542b9d795def1e73d83f76a73d548d1419be1b91aab8
+        0x227a2d2aacb4cd50cd15a896cac13f7ccdb35c724a7991018684429b8148ef6d,
+        0x2e54e2c3756b2744d6abced4b0f9874181d0b82b1e339298deb426892eef91c6
+    ];
+
+    uint256[2] nonroundPA = [
+        0x0493eafd434fbcb6a00c8f51b5fe7c40379d83599554358bc7f80e2867ad78d9,
+        0x2a4c4656c61abb9a5f74ee5d1964dbf80488d98493e02bdfc853a8cddfb8d54f
+    ];
+    uint256[2][2] nonroundPB = [
+        [
+            0x09875a37205a1bd641694903658ec1252871969263fe415f94b3908d7381959a,
+            0x06311404331264705fd2fb431d0c8d6550b485e27f2879a6cb5eb0ae6866d0cc
+        ],
+        [
+            0x2241500d98c23940f5cf640640e4ddcdb094b287eb5bf9cf92f5ac15a8dde2c7,
+            0x2893ff3553e01d4bce11ac51d6608cd05e0d10f3bc92379b135d946d4d388c0d
+        ]
+    ];
+    uint256[2] nonroundPC = [
+        0x27e5860cacd5477220deb543e331e9237a675c0e4862e110a97409a640c317f9,
+        0x2777a1dd8723ef5f35de7cfd8e71c05c1f8ba9818132fa93222b4365b6ec56e5
     ];
 
     function setUp() public {
@@ -122,6 +153,10 @@ contract TransitionRevealAdapterTest is Test {
 
     function _transitionProof() internal view returns (bytes memory) {
         return abi.encode(transitionPA, transitionPB, transitionPC);
+    }
+
+    function _nonroundProof() internal view returns (bytes memory) {
+        return abi.encode(nonroundPA, nonroundPB, nonroundPC);
     }
 
     function _repayProof() internal view returns (bytes memory) {
@@ -277,6 +312,60 @@ contract TransitionRevealAdapterTest is Test {
             CHECKPOINT_INDEX,
             CHECKPOINT_INDEX,
             _repayProof()
+        );
+        assertFalse(ok);
+    }
+
+    function test_verifyTransition_acceptsNonRoundAccruedInterest() public {
+        // Regression test for a real bug found live, on a real repay: the
+        // circuit used to demand interestAccrued divide out of
+        // debt*indexDelta/checkpointIndex EXACTLY. The 5% fixture above
+        // happens to divide out evenly (1000 * 5% = 50 exactly), which is
+        // exactly why it never caught this — every prior test's numbers
+        // happened to be clean. This fixture uses the real currentIndex
+        // captured from the actual failed transaction, which does not divide
+        // evenly (floor(900e6 * 9886986254466 / 1e18) = 8898, real nonzero
+        // remainder) — the old constraint rejected this outright; the fix
+        // (transition.circom's bounded-remainder floor-division check)
+        // accepts it.
+        bool ok = adapter.verifyTransition(
+            0,
+            NONROUND_OLD_COMMITMENT,
+            NONROUND_NEW_COMMITMENT,
+            2,
+            0,
+            0,
+            0,
+            500_000_000 * CIRCUIT_UNIT,
+            8898 * CIRCUIT_UNIT,
+            CHECKPOINT_INDEX,
+            CURRENT_INDEX_NONROUND,
+            _nonroundProof()
+        );
+        assertTrue(ok);
+    }
+
+    function test_verifyTransition_rejectsFlooredInterestRoundedUp() public {
+        // Same proof and same real index move as the non-round fixture above
+        // — but claiming interestAccrued=8899 (rounded up) instead of the
+        // true floor value 8898. The remainder for 8899 would be negative in
+        // real terms, which the fix's Num2Bits(100) range check on the
+        // remainder rejects (it wraps to a field element nowhere near
+        // representable in 100 bits) — confirming the fix enforces floor
+        // division precisely, not just "close enough."
+        bool ok = adapter.verifyTransition(
+            0,
+            NONROUND_OLD_COMMITMENT,
+            NONROUND_NEW_COMMITMENT,
+            2,
+            0,
+            0,
+            0,
+            500_000_000 * CIRCUIT_UNIT,
+            8899 * CIRCUIT_UNIT,
+            CHECKPOINT_INDEX,
+            CURRENT_INDEX_NONROUND,
+            _nonroundProof()
         );
         assertFalse(ok);
     }

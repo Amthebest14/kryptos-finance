@@ -11,11 +11,11 @@ All contracts below are live on **Horizen Testnet** (chain id `2651420`), deploy
 
 | Contract | Address |
 |---|---|
-| `VaultManager` | `0x6b2cFE744D93AC7734281756CB4f3De0071bE8cA` |
-| `PositionRegistry` | `0x4f226Ce0A8b2232562Fc5982a8027903FC2A9Da6` |
-| `LiquidationHandler` | `0x925AF37De2142a6cF4c76D5546D55a90981b57Bd` |
-| `ProofVerifierAdapter` | `0x0DB69497D9E1d485758Ef9c5925F383Dc52aFCcb` |
-| `TransitionRevealAdapter` | `0xbaC53287eCf23ac461742B2BC08AC5754664b14d` |
+| `VaultManager` | `0x197c114E68B3Ba0852D49a781c1B077Ec10f461f` |
+| `PositionRegistry` | `0x25ED11B0cf27Abeb790B9bb1D11f49354Aa4DB88` |
+| `LiquidationHandler` | `0x4b842DbE65bbd79BcA839c4e4F16AA388E934A34` |
+| `ProofVerifierAdapter` | `0x7511A6e12f9C66a6c62d31fEdB98E41478339B3b` |
+| `TransitionRevealAdapter` | `0x7E9cA610f84A2971E0D0576d7018196726fC3612` |
 | `PriceOracle` | `0xD746bD3B09ce0D4Ba708BA85479471A93792b1E5` |
 | `InterestRateModel` | `0x4049f156BCF0FD86eC93A7100c9006E3e49B2d63` |
 | `ZenStaking` | `0x0b56986F8Ec05ba0b6da5956269cDA0c5BB9226E` |
@@ -26,7 +26,7 @@ All contracts below are live on **Horizen Testnet** (chain id `2651420`), deploy
 | Verifier | Circuit | Address |
 |---|---|---|
 | `HealthFactorVerifier` | Circuit A | `0x2DF316eC6fbFED3a336871d7c0b11d1B64938E34` |
-| `TransitionVerifier` | Circuit T | `0xDe7c8f1C1135A6790F25316ca42B37354196a216` |
+| `TransitionVerifier` | Circuit T | `0x674D241d662DD538f9Ae693463362977E6D7DC8D` |
 | `RevealVerifier` | Circuit R | `0xf17904Cdbe9E60F1B210B6f4CBa22da6D0ac40cB` |
 
 ## Test assets (mock, faucet-enabled)

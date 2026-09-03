@@ -30,8 +30,18 @@ include "../node_modules/circomlib/circuits/bitify.circom";
 // and .currentBorrowIndex respectively) — never caller-chosen, the same fix
 // pattern PriceOracle.sol used for gap #1. For a call that isn't claiming any
 // interest (deposit, withdraw, or a borrow/repay with nothing accrued yet),
-// VaultManager passes checkpointIndex == currentIndex, which collapses the
-// constraint below to `interestAccrued === 0` regardless of oldDebt.
+// VaultManager passes checkpointIndex == currentIndex, which forces
+// `interestAccrued === 0` regardless of oldDebt (see the remainder check
+// below — indexDelta collapsing to 0 leaves no room for anything else).
+//
+// interestAccrued is proven as floor(oldDebt * indexDelta / checkpointIndex),
+// not required to divide out exactly — a real, previously-shipped bug here
+// demanded exact equality, which real interest essentially never satisfies
+// (checkpointIndex is a huge WAD-scaled value with no reason to divide the
+// product evenly), failing on essentially every call with any nonzero
+// elapsed time. Caught live, on a real repay, not in testing — every prior
+// test happened to touch its asset with zero elapsed interest, collapsing
+// the old check to the trivial 0 === 0 case.
 template TransitionProof() {
     signal input oldCollateral[3];
     signal input oldDebt[3];
@@ -145,7 +155,24 @@ template TransitionProof() {
     interestLHS <== interestAccrued * checkpointIndex;
     signal interestRHS;
     interestRHS <== oldDebtSelected * indexDelta;
-    interestLHS === interestRHS;
+    // Floor division, proven via a bounded remainder rather than asking
+    // interestLHS to equal interestRHS exactly. Both products can run up to
+    // ~150 bits (50-bit debt/interest values times 100-bit index values),
+    // but the remainder itself is provably under checkpointIndex (<2^100),
+    // so only that difference — not the full products — needs range-checking.
+    // Num2Bits(100) alone already rejects an over-claimed interestAccrued
+    // (the subtraction goes negative, wrapping to a field element nowhere
+    // near representable in 100 bits); the LessThan below catches an
+    // under-claimed one (a remainder that's nonnegative but not actually
+    // smaller than checkpointIndex).
+    signal interestRemainder;
+    interestRemainder <== interestRHS - interestLHS;
+    component remainderBits = Num2Bits(100);
+    remainderBits.in <== interestRemainder;
+    component remainderLtCheckpoint = LessThan(100);
+    remainderLtCheckpoint.in[0] <== interestRemainder;
+    remainderLtCheckpoint.in[1] <== checkpointIndex;
+    remainderLtCheckpoint.out === 1;
 
     // newCollateral[i] == oldCollateral[i] + sel[i]*(increase - decrease), and
     // likewise for debt (principal borrow + accrued interest, minus

@@ -14,40 +14,42 @@ export const RPC_URL = "https://horizen-testnet.rpc.caldera.xyz/http";
 // starts fresh at block 0. Adequate for now (deployment just happened), but
 // once the chain advances >100k blocks past DEPLOY_BLOCK this single-range
 // query will need to be split into 100k-block chunks — not needed yet.
-export const DEPLOY_BLOCK = 0x197cd58;
+export const DEPLOY_BLOCK = 0x199708a;
 
-// Redeployed an eighth time (2026-09-02): fixes a real bug found live, not a
-// docs-only change. seizeAndRepay() used to leave a liquidated wallet's
-// positionOf[owner].active permanently true, sealed against a plain
-// keccak256 "closed" marker instead of a genuine Poseidon commitment — no
-// transition proof could ever be built from that again, so the wallet was
-// locked out of depositing, withdrawing, borrowing, or repaying forever.
-// Fixed by resetting `active` on seizure (see VaultManager.sol's own
-// seizeAndRepay comment) so a fresh deposit opens a brand-new position
-// instead of dead-ending.
+// Redeployed a ninth time (2026-09-03): fixes a real bug found live, on a
+// real repay. transition.circom's interest constraint used to demand
+// interestAccrued divide out of debt*indexDelta/checkpointIndex EXACTLY —
+// real interest essentially never does (checkpointIndex is a huge
+// WAD-scaled value with no reason to divide the product evenly), so any
+// borrow/repay with nonzero elapsed time failed outright. Every prior test
+// happened to use round numbers (or zero elapsed time) that divided evenly
+// by coincidence. Fixed in the circuit itself: interestAccrued is now
+// proven as a floor division via a bounded remainder, not exact equality —
+// see transition.circom's own comment.
 //
-// Reused as-is (untouched by this fix, so existing wallet balances and
-// faucet cooldowns carry over): both Groth16 verifier sets, the health
-// verifier, TransitionRevealAdapter, PriceOracle, InterestRateModel, and the
-// WETH/USDC/ZEN mock tokens themselves.
+// A new circuit means a new TransitionVerifier, which TransitionRevealAdapter
+// wires to immutably, which PositionRegistry/ProofVerifierAdapter/
+// VaultManager/LiquidationHandler all reference immutably in turn — the same
+// full cascade as the eighth redeploy, plus TransitionRevealAdapter itself
+// this time (reused as-is last time, since only VaultManager's own Solidity
+// changed then, not the circuit).
 //
-// ZenStaking is the one real cost of this redeploy: its `vault` reference
-// used to be immutable, so it had to be redeployed too, orphaning existing
-// stakes and unclaimed rewards. It just gained an owner-gated setVault(), so
-// this is the last time a VaultManager fix costs staking state — a future
-// fix can point this SAME ZenStaking at a new vault in place.
+// Reused as-is: HealthVerifier and RevealVerifier (neither circuit changed),
+// PriceOracle, InterestRateModel, and the WETH/USDC/ZEN mock tokens.
+// ZenStaking is reused too, repointed via its own setVault() rather than
+// redeployed — existing stakes and unclaimed rewards carry over untouched.
 export const ADDRESSES = {
-  proofVerifier: "0x0DB69497D9E1d485758Ef9c5925F383Dc52aFCcb", // ProofVerifierAdapter (real, Circuit A)
+  proofVerifier: "0x7511A6e12f9C66a6c62d31fEdB98E41478339B3b", // ProofVerifierAdapter (real, Circuit A)
   healthVerifier: "0x2DF316eC6fbFED3a336871d7c0b11d1B64938E34", // generated Groth16 verifier (Circuit A) — reused
-  transitionVerifier: "0xDe7c8f1C1135A6790F25316ca42B37354196a216", // generated Groth16 verifier (Circuit T) — reused
+  transitionVerifier: "0x674D241d662DD538f9Ae693463362977E6D7DC8D", // generated Groth16 verifier (Circuit T) — fresh, fixes the interest bug
   revealVerifier: "0xf17904Cdbe9E60F1B210B6f4CBa22da6D0ac40cB", // generated Groth16 verifier (Circuit R) — reused
-  transitionRevealAdapter: "0xbaC53287eCf23ac461742B2BC08AC5754664b14d", // reused, gates deposit/withdraw/borrow/repay + liquidate
+  transitionRevealAdapter: "0x7E9cA610f84A2971E0D0576d7018196726fC3612", // fresh, gates deposit/withdraw/borrow/repay + liquidate
   priceOracle: "0xD746bD3B09ce0D4Ba708BA85479471A93792b1E5", // reused
   interestRateModel: "0x4049f156BCF0FD86eC93A7100c9006E3e49B2d63", // reused
-  zenStaking: "0x0b56986F8Ec05ba0b6da5956269cDA0c5BB9226E", // fresh — see redeploy note above
-  registry: "0x4f226Ce0A8b2232562Fc5982a8027903FC2A9Da6",
-  vault: "0x6b2cFE744D93AC7734281756CB4f3De0071bE8cA",
-  handler: "0x925AF37De2142a6cF4c76D5546D55a90981b57Bd",
+  zenStaking: "0x0b56986F8Ec05ba0b6da5956269cDA0c5BB9226E", // reused, repointed via setVault()
+  registry: "0x25ED11B0cf27Abeb790B9bb1D11f49354Aa4DB88",
+  vault: "0x197c114E68B3Ba0852D49a781c1B077Ec10f461f",
+  handler: "0x4b842DbE65bbd79BcA839c4e4F16AA388E934A34",
   weth: "0x239Ac78cAb8d5553BDC6737593824b06fd88CE47", // reused
   usdc: "0xe026E73C3aD539b6566d2A1A29A5d778e7AB7C9a", // reused
   zen: "0xe015F8ccacC72545b9CF457a610bfC75fFAB4ADd", // reused

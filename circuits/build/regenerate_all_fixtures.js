@@ -86,6 +86,37 @@ async function main() {
     console.log("transition (repay+interest) done.");
   }
 
+  // === transition: repay with interest, non-round index delta — regression
+  // fixture for a real bug found live. The 5% fixture above happens to
+  // divide out to a whole number (1000 * 5% = 50 exactly), which is exactly
+  // why it never caught the bug: the old circuit demanded interestAccrued
+  // divide out of debt*indexDelta/checkpointIndex EXACTLY, and this fixture
+  // uses the real currentIndex captured from a live failed transaction
+  // (checkpointIndex=1e18 -> currentIndex=1000009886986254466), which does
+  // NOT divide evenly — floor(900e6 * 9886986254466 / 1e18) = 8898, with a
+  // real nonzero remainder the old exact-equality check would have rejected. ===
+  {
+    const oldCollateral = ["0", "0", "5000000"];
+    const oldDebt = ["0", "0", "900000000"];
+    const salt = "12345";
+    const oldCommitment = commit([...oldCollateral, ...oldDebt, salt]);
+    const newCollateral = ["0", "0", "5000000"];
+    const newDebt = ["0", "0", "400008898"]; // 900000000 + 8898 - 500000000
+    const newCommitment = commit([...newCollateral, ...newDebt, salt]);
+    const checkpointIndex = "1000000000000000000";
+    const currentIndex = "1000009886986254466";
+    const input = {
+      oldCollateral, oldDebt, newCollateral, newDebt, salt,
+      oldCommitment, newCommitment, assetIndex: "2",
+      collateralIncrease: "0", collateralDecrease: "0",
+      principalIncrease: "0", debtDecrease: "500000000", interestAccrued: "8898",
+      checkpointIndex, currentIndex,
+    };
+    const r = await proveAndExtract(input, "transition_js/transition.wasm", "transition_final.zkey");
+    out.transitionRepayNonRoundInterest = { ...r, oldCommitment, newCommitment, checkpointIndex, currentIndex };
+    console.log("transition (repay+non-round interest) done.");
+  }
+
   // === reveal (circuit unchanged, setup regenerated) — same fixture as before ===
   {
     const collateral = ["5000000", "0", "0"];
