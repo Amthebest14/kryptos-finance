@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { useApp } from "../state/AppContext";
@@ -14,6 +15,7 @@ export function Header() {
   const { ui, toggleTheme } = useApp();
   const location = useLocation();
   const navigate = useNavigate();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   return (
     <header
@@ -31,11 +33,11 @@ export function Header() {
       }}
     >
       <Link to="/" style={{ display: "flex", alignItems: "center", gap: 10, color: "var(--text)" }}>
-        <img src="/logo-64.png" alt="" width={26} height={26} style={{ borderRadius: 7, display: "block" }} />
-        <span style={{ fontWeight: 600, fontSize: 15, letterSpacing: "-0.01em", whiteSpace: "nowrap" }}>Kryptos Finance</span>
+        <img src="/logo-64.png" alt="" width={26} height={26} style={{ borderRadius: 7, display: "block", flexShrink: 0 }} />
+        <span className="header-brand-text" style={{ fontWeight: 600, fontSize: 15, letterSpacing: "-0.01em", whiteSpace: "nowrap" }}>Kryptos Finance</span>
       </Link>
 
-      <nav style={{ display: "flex", alignItems: "center", gap: 4, flex: 1, overflow: "auto" }}>
+      <nav className="header-nav-desktop" style={{ alignItems: "center", gap: 4, flex: 1, overflow: "auto" }}>
         {NAVS.map((n) => {
           const active = location.pathname === n.path;
           return (
@@ -60,7 +62,71 @@ export function Header() {
         })}
       </nav>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+      <button
+        className="header-mobile-toggle"
+        onClick={() => setMobileMenuOpen((v) => !v)}
+        aria-label="Toggle navigation menu"
+        aria-expanded={mobileMenuOpen}
+        style={{
+          flex: 1,
+          alignItems: "center",
+          justifyContent: "flex-end",
+          border: 0,
+          background: "none",
+          padding: 8,
+        }}
+      >
+        <span style={{ display: "flex", flexDirection: "column", gap: 4, width: 20 }}>
+          <span style={{ height: 2, borderRadius: 1, background: "var(--text)", width: "100%" }} />
+          <span style={{ height: 2, borderRadius: 1, background: "var(--text)", width: "100%" }} />
+          <span style={{ height: 2, borderRadius: 1, background: "var(--text)", width: "100%" }} />
+        </span>
+      </button>
+
+      {mobileMenuOpen && (
+        <div
+          className="header-mobile-toggle"
+          style={{
+            position: "absolute",
+            top: 64,
+            left: 0,
+            right: 0,
+            flexDirection: "column",
+            gap: 2,
+            padding: 12,
+            background: "var(--bg)",
+            borderBottom: "1px solid var(--border)",
+            boxShadow: "0 12px 24px rgba(0,0,0,0.25)",
+          }}
+        >
+          {NAVS.map((n) => {
+            const active = location.pathname === n.path;
+            return (
+              <button
+                key={n.path}
+                onClick={() => {
+                  navigate(n.path);
+                  setMobileMenuOpen(false);
+                }}
+                style={{
+                  textAlign: "left",
+                  padding: "10px 12px",
+                  border: 0,
+                  background: active ? "var(--surface2)" : "none",
+                  borderRadius: 8,
+                  color: active ? "var(--text)" : "var(--dim)",
+                  fontSize: 14,
+                  fontWeight: active ? 550 : 500,
+                }}
+              >
+                {n.label}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
         <button
           onClick={toggleTheme}
           style={{

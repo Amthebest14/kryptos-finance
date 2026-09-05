@@ -56,7 +56,7 @@ export function Landing() {
           <span style={{ width: 6, height: 6, borderRadius: "50%", background: "var(--gold)" }} />
           Confidential lending market · live on Horizen
         </div>
-        <h1 style={{ margin: "26px 0 0", fontSize: 60, lineHeight: 1.02, letterSpacing: "-0.035em", fontWeight: 600, maxWidth: "15ch" }}>
+        <h1 style={{ margin: "26px 0 0", fontSize: "clamp(36px, 9vw, 60px)", lineHeight: 1.02, letterSpacing: "-0.035em", fontWeight: 600, maxWidth: "15ch" }}>
           Borrow without publishing your position.
         </h1>
         <p style={{ margin: "24px 0 0", maxWidth: "60ch", fontSize: 17, lineHeight: 1.55, color: "var(--dim)" }}>

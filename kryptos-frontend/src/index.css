@@ -39,3 +39,18 @@ button{font-family:inherit;cursor:pointer}
 @media (prefers-reduced-motion: reduce){
   .landing-bg-mark{animation:none;transform:translate(-50%,-50%)}
 }
+
+/* Header responsive nav — pure layout, no behavior change. Below 720px the
+   inline nav (which has nowhere to shrink to on a phone width) is replaced
+   by a hamburger toggle driving the same NAVS list in a dropdown; the
+   buttons underneath still just call the same navigate(path). Above 720px
+   this is a no-op, the header renders exactly as it always has. */
+.header-nav-desktop{display:flex}
+.header-mobile-toggle{display:none}
+@media (max-width: 720px){
+  .header-nav-desktop{display:none!important}
+  .header-mobile-toggle{display:flex!important}
+}
+@media (max-width: 380px){
+  .header-brand-text{display:none}
+}
